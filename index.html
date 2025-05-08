@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>炫酷黄金回本 & 盈亏率 计算器</title>
+  <style>
+    /* 渐变动画背景：GPU 加速 */
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: "Helvetica Neue", sans-serif;
+      color: #fff;
+      background: linear-gradient(45deg, #ff0080, #ff8c00, #40e0d0, #ff0080);
+      background-size: 800% 800%;
+      animation: gradientBG 20s ease infinite;
+      overflow: hidden;
+    }
+    @keyframes gradientBG {
+      0%   { background-position: 0% 50%; }
+      50%  { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+
+    /* 容器与卡片 */
+    .container {
+      max-width: 500px;
+      margin: 60px auto;
+      padding: 20px;
+      background: rgba(0,0,0,0.4);
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      backdrop-filter: blur(8px);
+    }
+    h2 {
+      text-align: center;
+      margin-bottom: 24px;
+      text-shadow: 0 0 8px rgba(255,255,255,0.8);
+    }
+
+    /* 表单元素 */
+    label { margin-top: 12px; font-size: 0.9rem; }
+    select, input {
+      width: 100%;
+      padding: 10px;
+      margin-top: 6px;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      outline: none;
+      background: rgba(255,255,255,0.2);
+      color: #fff;
+      transition: background 0.3s;
+      will-change: background;
+    }
+    select:hover, input:hover,
+    select:focus, input:focus {
+      background: rgba(255,255,255,0.3);
+    }
+
+    /* 结果面板 */
+    #result {
+      margin-top: 24px;
+      padding: 16px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 12px;
+      text-align: center;
+      font-size: 1.1rem;
+      line-height: 1.6;
+      will-change: opacity, transform;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+    #result.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* 滚动数字的样式 */
+    .number {
+      display: inline-block;
+      min-width: 80px;
+      font-weight: bold;
+      font-size: 1.3rem;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h2>黄金回本 & 盈亏率 计算器</h2>
+
+    <label for="platform">选择平台 / 银行</label>
+    <select id="platform">
+      <option value="icbc">工商银行（买0.5% / 卖0.5%）</option>
+      <option value="ccb">建设银行（点差4元/克）</option>
+      <option value="boc">中国银行（点差0.8%）</option>
+      <option value="abc">农业银行（点差2.0%）</option>
+      <option value="jd">京东金融（买0% / 卖0.3%）</option>
+      <option value="tencent">腾讯理财通（买0% / 卖0.5%）</option>
+    </select>
+
+    <label for="purchasePrice">购入金价（元/克）</label>
+    <input type="number" id="purchasePrice" step="0.01" placeholder="例如 430.50">
+
+    <label for="quantity">购买克数（或留空用金额计算）</label>
+    <input type="number" id="quantity" step="0.01" placeholder="例如 10">
+
+    <label for="totalAmount">购买总金额（元，可选）</label>
+    <input type="number" id="totalAmount" step="0.01" placeholder="例如 4305">
+
+    <label for="currentPrice">当前金价（元/克）</label>
+    <input type="number" id="currentPrice" step="0.01" placeholder="例如 445.20">
+
+    <div id="result">
+      <p>回本价格：<span class="number" id="breakEven">0.00</span> 元/克</p>
+      <p>当前盈亏率：<span class="number" id="profitRate">0.00</span>%</p>
+    </div>
+  </div>
+
+  <script>
+    // 平台手续费配置
+    const platforms = {
+      icbc:    { buyRate:0.005, sellRate:0.005 },
+      ccb:     { buyAbs:2,    sellAbs:2    }, // 点差4元/克
+      boc:     { buyRate:0.008/2, sellRate:0.008/2 },
+      abc:     { buyRate:0.02/2,  sellRate:0.02/2 },
+      jd:      { buyRate:0,    sellRate:0.003 },
+      tencent: { buyRate:0,    sellRate:0.005 }
+    };
+
+    // 数字滚动动画
+    function animateValue(el, start, end, duration=800) {
+      const range = end - start;
+      let startTime = null;
+      function step(ts) {
+        if (!startTime) startTime = ts;
+        const progress = Math.min((ts - startTime) / duration, 1);
+        el.textContent = (start + range * progress).toFixed(2);
+        if (progress < 1) requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }
+
+    // 防抖
+    function debounce(fn, delay=300) {
+      let timer = null;
+      return function(...args) {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn.apply(this, args), delay);
+      };
+    }
+
+    function calculate() {
+      const pf = document.getElementById('platform').value;
+      const cfg = platforms[pf];
+      const p0 = parseFloat(document.getElementById('purchasePrice').value);
+      const qtyInput = parseFloat(document.getElementById('quantity').value);
+      const amtInput = parseFloat(document.getElementById('totalAmount').value);
+      const pCurr = parseFloat(document.getElementById('currentPrice').value);
+
+      if (isNaN(p0) || isNaN(pCurr) ||
+         ((!qtyInput || qtyInput<=0) && (!amtInput || amtInput<=0))) {
+        document.getElementById('result').classList.remove('show');
+        return;
+      }
+
+      // 计算实际购买克数
+      let qty = qtyInput>0
+        ? qtyInput
+        : (cfg.buyRate!=null
+            ? amtInput / (p0*(1+cfg.buyRate))
+            : amtInput / (p0 + cfg.buyAbs));
+
+      // 回本价格
+      let breakEven = cfg.buyRate!=null
+        ? p0*(1+cfg.buyRate)/(1-cfg.sellRate)
+        : p0 + cfg.buyAbs + cfg.sellAbs;
+
+      // 盈亏率
+      let costPerGram = cfg.buyRate!=null
+        ? p0*(1+cfg.buyRate)
+        : (p0 + cfg.buyAbs);
+      let netCurr = cfg.sellRate!=null
+        ? pCurr*(1-cfg.sellRate)
+        : (pCurr - cfg.sellAbs);
+      let profitRate = (netCurr - costPerGram)/costPerGram * 100;
+
+      // 播放数字动画
+      animateValue(document.getElementById('breakEven'),
+                   parseFloat(document.getElementById('breakEven').textContent),
+                   breakEven);
+      animateValue(document.getElementById('profitRate'),
+                   parseFloat(document.getElementById('profitRate').textContent),
+                   profitRate);
+
+      // 显示结果
+      document.getElementById('result').classList.add('show');
+    }
+
+    // 监听输入事件，实时计算
+    ['platform','purchasePrice','quantity','totalAmount','currentPrice']
+      .forEach(id => {
+        document.getElementById(id)
+          .addEventListener('input', debounce(calculate, 300));
+      });
+  </script>
+</body>
+</html>
